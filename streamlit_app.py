@@ -1,7 +1,7 @@
 import streamlit as st
 import pymupdf
 import re
-from transformers import pipeline
+from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 
 st.title("Cloud PDF AI Assistant")
 
@@ -9,11 +9,14 @@ pdf = st.file_uploader("Upload a PDF", type=["pdf"])
 
 @st.cache_resource
 def load_model():
-    return pipeline(
-        "text2text-generation",
-        model="google/flan-t5-small",
-        device=-1
+    tokenizer = AutoTokenizer.from_pretrained(
+        "google/flan-t5-small"
     )
+    model = AutoModelForSeq2SeqLM.from_pretrained(
+        "google/flan-t5-small"
+    )
+    model.eval()
+    return tokenizer, model
 
 if pdf:
     with pymupdf.open(
