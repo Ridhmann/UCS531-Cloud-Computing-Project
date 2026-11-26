@@ -1,6 +1,6 @@
+import re
 import streamlit as st
 import pymupdf
-import re
 import torch
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 
@@ -50,31 +50,31 @@ if pdf is not None:
         else:
             try:
                 with st.spinner("Searching PDF and generating answer..."):
-                    tokenizer, model = load_model()
-
                     stopwords = {
-                        "what", "which", "when", "where",
-                        "explain", "describe", "about",
-                        "does", "with", "from", "the",
-                        "and", "are", "for", "how", "why",
-                        "this", "that", "give", "example"
+                        "what", "which", "when", "where", "explain",
+                        "describe", "about", "does", "with", "from",
+                        "the", "and", "are", "for", "how", "why",
+                        "this", "that", "give", "example", "examples",
+                        "using", "please", "tell", "define"
                     }
 
                     words = {
-                        w for w in re.findall(
-                            r"\w+", question.lower()
-                        )
+                        w for w in re.findall(r"\w+", question.lower())
                         if len(w) > 2 and w not in stopwords
                     }
+
+                    if not words:
+                        st.warning("Please include a topic in your question.")
+                        st.stop()
 
                     chunks = []
 
                     for page_num, page in enumerate(pages):
                         page_words = page.split()
 
-                        for start in range(0, len(page_words), 100):
+                        for start in range(0, len(page_words), 80):
                             chunk = " ".join(
-                                page_words[start:start + 130]
+                                page_words[start:start + 100]
                             )
 
                             if not chunk.strip():
@@ -89,9 +89,7 @@ if pdf is not None:
                             )
 
                             if score > 0:
-                                chunks.append(
-                                    (score, page_num, chunk)
-                                )
+                                chunks.append((score, page_num, chunk))
 
                     chunks.sort(
                         key=lambda item: item[0],
@@ -100,52 +98,102 @@ if pdf is not None:
 
                     if not chunks:
                         st.warning("No relevant text found in the PDF.")
+                        st.stop()
 
-                    else:
-                        relevant = chunks[0]
-                        context = relevant[2]
+                    tokenizer, model = load_model()
 
-                        prompt = (
-                            "Answer the question in complete sentences "
-                            "using only the context. Include definitions "
-                            "and examples when available. Do not return "
-                            "only a heading. If the answer is missing, "
-                            "say it is not present in the PDF.\n"
-                            f"Question: {question}\n"
-                            f"Context: {context}\n"
-                            "Answer:"
+                    instruction = (
+                        "Answer using only the context. "
+                        "Give a complete explanation and an example "
+                        "if present. Do not return only a heading.\n"
+                        f"Question: {question}\n"
+                        "Context:\n"
+                    )
+
+                    suffix = "\nAnswer:"
+                    max_input = 512
+
+                    reserved = len(
+                        tokenizer.encode(
+                            instruction + suffix,
+                            add_special_tokens=True
+                        )
+                    )
+
+                    budget = max_input - reserved
+
+                    if budget < 50:
+                        st.warning("Please shorten your question.")
+                        st.stop()
+
+                    selected = []
+                    context_parts = []
+
+                    for score, page_num, chunk in chunks:
+                        remaining = budget - sum(
+                            len(tokenizer.encode(part, add_special_tokens=False))
+                            for part in context_parts
                         )
 
-                        inputs = tokenizer(
-                            prompt,
-                            return_tensors="pt",
-                            truncation=True,
-                            max_length=512
-                        )
+                        if remaining <= 0 or len(selected) >= 3:
+                            break
 
-                        with torch.inference_mode():
-                            output = model.generate(
-                                **inputs,
-                                max_new_tokens=180,
-                                num_beams=4,
-                                repetition_penalty=1.2,
-                                early_stopping=True
-                            )
+                        token_ids = tokenizer.encode(
+                            chunk,
+                            add_special_tokens=False
+                        )[:remaining]
 
-                        answer = tokenizer.decode(
-                            output[0],
+                        if not token_ids:
+                            continue
+
+                        part = tokenizer.decode(
+                            token_ids,
                             skip_special_tokens=True
                         )
 
-                        st.subheader("AI Answer")
-                        st.write(answer)
+                        context_parts.append(part)
+                        selected.append((page_num, part))
 
-                        st.caption(
-                            f"Source page: {relevant[1] + 1}"
+                    context = "\n".join(context_parts)
+
+                    prompt = instruction + context + suffix
+
+                    inputs = tokenizer(
+                        prompt,
+                        return_tensors="pt",
+                        truncation=True,
+                        max_length=max_input
+                    )
+
+                    with torch.inference_mode():
+                        output = model.generate(
+                            **inputs,
+                            max_new_tokens=180,
+                            num_beams=4,
+                            early_stopping=True
                         )
 
-                        with st.expander("View retrieved PDF text"):
-                            st.write(context)
+                    answer = tokenizer.decode(
+                        output[0],
+                        skip_special_tokens=True
+                    )
+
+                st.subheader("AI Answer")
+                st.write(answer)
+
+                source_pages = sorted({
+                    page_num + 1 for page_num, _ in selected
+                })
+
+                st.caption(
+                    "Source pages: " +
+                    ", ".join(str(p) for p in source_pages)
+                )
+
+                with st.expander("View retrieved PDF text"):
+                    for page_num, part in selected:
+                        st.markdown(f"**Page {page_num + 1}**")
+                        st.write(part)
 
             except Exception as e:
                 st.error(f"AI model error: {e}")
