@@ -65,6 +65,22 @@ def embed(text):
     return json.loads(response["body"].read())["embedding"]
 
 
+def load_vector(raw):
+    """Accept a JSON string (this repo's generate_embeddings) or a DynamoDB
+    number list (Decimals, as other ingestion code may have written)."""
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except ValueError:
+            return None
+    if isinstance(raw, (list, tuple)):
+        try:
+            return [float(x) for x in raw]
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
 def cosine(a, b):
     dot = sum(x * y for x, y in zip(a, b))
     norm = math.sqrt(sum(x * x for x in a)) * math.sqrt(sum(y * y for y in b))
@@ -104,8 +120,15 @@ def lambda_handler(event, context):
     query_vector = embed(question)
 
     scored = []
+    mismatched_dims = set()
     for item in completed_chunks(document_id):
-        if "embedding" not in item:
+        vector = load_vector(item.get("embedding"))
+        if not vector:
+            continue
+        if len(vector) != len(query_vector):
+            # Stored with a different embedding model: scores would be
+            # meaningless, so skip rather than silently rank garbage.
+            mismatched_dims.add(len(vector))
             continue
         scored.append({
             "chunk_id": item["chunk_id"],
@@ -114,8 +137,18 @@ def lambda_handler(event, context):
             "chunk_index": int(item.get("chunk_index", 0)),
             "text": item.get("text", ""),
             "similarity_score": round(
-                cosine(query_vector, json.loads(item["embedding"])), 4
+                cosine(query_vector, vector), 4
             ),
+        })
+
+    if mismatched_dims and not scored:
+        return respond(500, {
+            "error": (
+                f"Stored embeddings have dimension "
+                f"{sorted(mismatched_dims)} but {EMBEDDING_MODEL_ID} "
+                f"returns {len(query_vector)}. Set EMBEDDING_MODEL_ID to "
+                "the model used at ingestion."
+            )
         })
 
     scored.sort(key=lambda c: c["similarity_score"], reverse=True)
