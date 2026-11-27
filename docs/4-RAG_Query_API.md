@@ -34,7 +34,7 @@ This function uses DeepSeek to synthesize a final answer.
     
 4.  **Execution Role:** lambda-rag-execution-role
     
-5.  **Code:** Paste the code from your lambda\_functions/generate-answer.py file (the final DeepSeek version with the "Robust Body Parsing" fix).
+5.  **Code:** Paste the code from your lambda\_functions/generate\_answer.py file (the final DeepSeek version with the "Robust Body Parsing" fix).
     
 6.  **Configuration -> General configuration:** Edit and set **Timeout** to **1 minute**.
     

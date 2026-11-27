@@ -9,14 +9,15 @@ The system is designed to be scalable, asynchronous, and cost-effective, using A
 ```
 .
 ├── docs/
-│ ├── 1-AWS_Setup.md
-│ ├── 2-Upload_Endpoint.md.md
+│ ├── 1-Aws_Setup.md
+│ ├── 2-Upload_Endpoint.md
 │ ├── 3-Data_Ingestion.md
 │ ├── 4-RAG_Query_API.md
-│ └── 5-Testing_Scripts.md
+│ ├── 5-Testing_Scripts.md
+│ └── Sample_Questions.md
 │
 ├── pdfs/
-│ └── (sample PDF papers go here)
+│ └── (sample PDF papers)
 │
 ├── lambda_functions/
 │ ├── get_presigned_url.py
@@ -26,9 +27,18 @@ The system is designed to be scalable, asynchronous, and cost-effective, using A
 │ ├── handle_query.py
 │ └── generate_answer.py
 │
+├── scripts/
+│ └── export_lambdas.sh
+│
 ├── index.ipynb
+├── streamlit_app.py
+├── requirements.txt
 └── README.md
 ```
+
+> **Note on `lambda_functions/`:** the original Lambda source was never committed. The files here were **reconstructed** from the guides in `docs/` and the request/response contract used by `index.ipynb`, so they may differ from what is deployed. Run `./scripts/export_lambdas.sh` (AWS CLI configured for the project account) to replace them with the deployed code, then review `git diff lambda_functions/`.
+>
+> The reconstructed functions read their settings from environment variables: `SNS_TOPIC_ARN` and `TEXTRACT_ROLE_ARN` (required by `process-document-batch`), plus optional `BUCKET_NAME`, `TABLE_NAME`, `EMBEDDING_MODEL_ID` (default `amazon.titan-embed-text-v2:0`) and `ANSWER_MODEL_ID` (default `deepseek.r1-v1:0`, set it to the model or inference profile enabled in your region). Uploads are stored as `uploads/<document_id>/<filename>`.
 
 ### 🧩 Directory Overview
 
@@ -37,7 +47,9 @@ The system is designed to be scalable, asynchronous, and cost-effective, using A
 | **docs/** | Contains setup and API documentation files for the project. |
 | **pdfs/** | Stores sample PDF documents for testing uploads. |
 | **lambda_functions/** | Contains all AWS Lambda functions for processing, embeddings, querying, and generating answers. |
+| **scripts/export_lambdas.sh** | Downloads the deployed Lambda code from AWS into `lambda_functions/`. |
 | **index.ipynb** | Main Jupyter Notebook used for local testing or walkthroughs. |
+| **streamlit_app.py** | Web front end for the API Gateway endpoints. |
 | **README.md** | Project overview and setup guide. |
 
 Project Architecture
@@ -131,6 +143,15 @@ streamlit run streamlit_app.py
 ```
 
 The API base URL defaults to the `dev` stage used in `index.ipynb`. To point at a different deployment, set `API_BASE_URL` as an environment variable or in `.streamlit/secrets.toml`, or edit it in the sidebar.
+
+### Securing the API
+
+The `dev` stage is public: anyone with the URL can trigger Textract and Bedrock calls billed to the account. To require an API key:
+
+1.  In API Gateway, open each method (`POST /upload-url`, `/query`, `/answer`) → **Method request** → set **API key required** to `true`.
+2.  Create an API key and a **usage plan** with throttling (for example 5 requests/second, burst 10) and a daily quota, and attach the `dev` stage and the key to it.
+3.  **Deploy** the API to `dev` again.
+4.  Give the app the key through `API_KEY` (environment variable or `.streamlit/secrets.toml`). It is sent as the `x-api-key` header. Never commit the key.
 
 Sample Questions
 -----------------
