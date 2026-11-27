@@ -1,6 +1,2 @@
-streamlit
-pymupdf
-transformers
-torch
-sentencepiece
-
+streamlit>=1.30
+requests>=2.31
