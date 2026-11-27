@@ -116,6 +116,22 @@ The full implementation is broken down into logical parts. Please see the guides
     
     *   [Guide to using the Jupyter Notebook (index.ipynb) to test the full end-to-end pipeline.](docs/5-Testing_Scripts.md)
 
+Web Front End (Streamlit)
+-------------------------
+
+`streamlit_app.py` is a web UI for the same API Gateway endpoints the notebook uses. It does no processing locally:
+
+*   **Upload** (sidebar): `POST /upload-url` returns a presigned URL, and the app PUTs the PDF straight to S3. Ingestion then runs asynchronously (allow 5-10 minutes).
+*   **Ask**: `POST /query` retrieves the top-k chunks, then `POST /answer` generates the answer with Bedrock. The app shows the answer and the source chunks with their similarity scores.
+*   You can query the five sample papers already ingested, any document uploaded in the session, a document ID you enter, or all documents.
+
+```
+pip install -r requirements.txt
+streamlit run streamlit_app.py
+```
+
+The API base URL defaults to the `dev` stage used in `index.ipynb`. To point at a different deployment, set `API_BASE_URL` as an environment variable or in `.streamlit/secrets.toml`, or edit it in the sidebar.
+
 Sample Questions
 -----------------
 
