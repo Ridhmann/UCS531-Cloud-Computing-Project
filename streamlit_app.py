@@ -36,13 +36,18 @@ class ApiError(Exception):
     pass
 
 
-def get_api_base_url():
+def get_setting(name, default=None):
     try:
-        url = st.secrets.get("API_BASE_URL")
+        value = st.secrets.get(name)
     except Exception:
-        url = None
-    url = url or os.environ.get("API_BASE_URL") or DEFAULT_API_BASE_URL
-    return url.rstrip("/")
+        value = None
+    return value or os.environ.get(name) or default
+
+
+def api_headers():
+    # Sent only when the API stage requires a key (see README).
+    key = get_setting("API_KEY")
+    return {"x-api-key": key} if key else {}
 
 
 def parse_response(response):
@@ -69,13 +74,26 @@ def parse_response(response):
 def post_json(base_url, path, payload):
     try:
         response = requests.post(
-            f"{base_url}/{path}", json=payload, timeout=API_TIMEOUT
+            f"{base_url}/{path}",
+            json=payload,
+            headers=api_headers(),
+            timeout=API_TIMEOUT,
         )
     except requests.Timeout:
         raise ApiError(f"/{path} timed out after {API_TIMEOUT}s.")
     except requests.RequestException as e:
         raise ApiError(f"Could not reach /{path}: {e}")
 
+    if response.status_code == 403 and not api_headers():
+        raise ApiError(
+            f"/{path} returned 403. If the API now requires a key, "
+            "set API_KEY (see README)."
+        )
+    if response.status_code == 504:
+        raise ApiError(
+            f"/{path} timed out in API Gateway (29 s limit). Try a single "
+            "document instead of all documents."
+        )
     if response.status_code != 200:
         raise ApiError(
             f"/{path} failed (HTTP {response.status_code}): "
@@ -144,7 +162,8 @@ if "uploaded_docs" not in st.session_state:
 with st.sidebar:
     st.header("Settings")
     api_base_url = st.text_input(
-        "API Gateway base URL", value=get_api_base_url()
+        "API Gateway base URL",
+        value=get_setting("API_BASE_URL", DEFAULT_API_BASE_URL),
     ).rstrip("/")
     top_k = st.slider("Chunks to retrieve (top_k)", 1, 10, 5)
 
